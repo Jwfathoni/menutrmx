@@ -16,38 +16,20 @@ from rich import box
 console = Console()
 HOME = Path.home()
 
-
-# =====================================================
-#  UTIL: CLEAR LAYAR
-# =====================================================
 def super_clear():
     os.system("printf '\\033c'")
     console.clear()
 
-
-# =====================================================
-#  UTIL: ENTER ATAU TIMEOUT
-# =====================================================
-def wait_enter_or_timeout(timeout: int = 10):
+def wait_enter_or_timeout(timeout: int = 7):
     console.print("[dim]Tekan ENTER untuk melanjutkan...[/dim]")
     try:
         rlist, _, _ = select.select([sys.stdin], [], [], timeout)
         if rlist:
             sys.stdin.readline()
-        else:
-            pass
     except Exception:
         time.sleep(timeout)
 
-
-# =====================================================
-#  AUTO UPDATE REPO menutrmx (git pull)
-# =====================================================
 def auto_update_repo():
-    """
-    Jika menu.py berada di dalam folder git (repo menutrmx),
-    lakukan git pull agar menu selalu versi terbaru.
-    """
     try:
         repo_dir = Path(__file__).resolve().parent
     except Exception:
@@ -57,10 +39,8 @@ def auto_update_repo():
         return
 
     try:
-        # Bersihkan layar dulu supaya tidak ada teks Termux di atas
         super_clear()
-
-        console.print("\n\n\n\n\n\n\n🔄 Mohon tunggu, sedang memeriksa dan memperbarui menu...\n")
+        console.print("\n\n\n\n\n\n🔄 Memeriksa & memperbarui menu...\n")
 
         res = subprocess.run(
             ["git", "pull", "--ff-only"],
@@ -69,20 +49,18 @@ def auto_update_repo():
             text=True
         )
         out = (res.stdout or "").strip().lower()
-
-        # Tambah jarak 1 baris sebelum tabel status
         console.print()
 
         if res.returncode == 0:
             if out and "already up to date" not in out:
-                msg = "✅ Menu berhasil diperbarui ke versi terbaru."
+                msg = "✅ Menu diperbarui."
                 style = "green"
             else:
-                msg = "✔️ Menu sudah dalam versi terbaru. Tidak ada pembaruan diperlukan."
+                msg = "✔️ Menu sudah versi terbaru."
                 style = "cyan"
 
             t = Table(
-                title="[bold cyan]📘 Status Update Menu[/bold cyan]",
+                title="[bold cyan]📘 STATUS UPDATE[/bold cyan]",
                 title_justify="center",
                 width=70,
                 box=box.ROUNDED,
@@ -98,10 +76,6 @@ def auto_update_repo():
     except Exception:
         pass
 
-
-# =====================================================
-#  CARI FOLDER DENGAN main.py
-# =====================================================
 def find_repos_with_mainpy():
     repos = []
     for p in sorted(HOME.iterdir(), key=lambda x: x.name.lower()):
@@ -109,10 +83,6 @@ def find_repos_with_mainpy():
             repos.append(p)
     return repos
 
-
-# =====================================================
-#  CARI FILE refresh-tokens.json
-# =====================================================
 def find_token_files():
     token_files = []
     for p in sorted(HOME.iterdir(), key=lambda x: x.name.lower()):
@@ -123,10 +93,6 @@ def find_token_files():
             token_files.append(f)
     return token_files
 
-
-# =====================================================
-#  JSON HELPER
-# =====================================================
 def load_tokens(path: Path) -> List[Dict]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -136,18 +102,15 @@ def load_tokens(path: Path) -> List[Dict]:
     except Exception:
         return []
 
-
 def make_key(item: Dict) -> Tuple:
     number = str(item.get("number", "")).strip()
     sid = str(item.get("subscriber_id", "")).strip()
     rt = str(item.get("refresh_token", "")).strip()
-
     if number and sid:
         return ("ns", number, sid)
     if rt:
         return ("rt", rt)
     return ("raw", number, sid, rt)
-
 
 def dedup_list(lst: List[Dict]) -> List[Dict]:
     seen = set()
@@ -159,7 +122,6 @@ def dedup_list(lst: List[Dict]) -> List[Dict]:
         seen.add(k)
         out.append(it)
     return out
-
 
 def merge_unique(all_lists: List[List[Dict]]) -> List[Dict]:
     merged = []
@@ -173,24 +135,30 @@ def merge_unique(all_lists: List[List[Dict]]) -> List[Dict]:
             merged.append(it)
     return merged
 
-
 def load_all_tokens_union():
     token_files = find_token_files()
     all_data = [dedup_list(load_tokens(f)) for f in token_files]
     merged = merge_unique(all_data)
     return token_files, merged
 
+def build_info_by_number(merged: List[Dict]) -> Dict[str, str]:
+    info_by_number: Dict[str, str] = {}
+    for item in merged:
+        num = str(item.get("number", "")).strip()
+        if not num:
+            continue
+        name = str(item.get("name", "")).strip()
+        if num not in info_by_number or not info_by_number[num]:
+            info_by_number[num] = name
+    return info_by_number
 
-# =====================================================
-#  USR: SYNC & BERSIHKAN DUPLIKAT
-# =====================================================
 def sync_users():
     super_clear()
     token_files = find_token_files()
 
     if not token_files:
         console.print(Panel.fit(
-            "[bold red]❌ Tidak ada refresh-tokens.json ditemukan.[/bold red]",
+            "[bold red]❌ Tidak ada refresh-tokens.json[/bold red]",
             border_style="red",
             width=70
         ))
@@ -217,20 +185,16 @@ def sync_users():
         f.write_text(json.dumps(merged, indent=4, ensure_ascii=False), encoding="utf-8")
 
     console.print(Panel.fit(
-        f"[bold green]✅ Sinkronisasi selesai.[/bold green]\n"
-        f"[cyan]File tokens ditemukan:[/cyan] {len(token_files)}\n"
-        f"[cyan]Data baru ditambahkan:[/cyan] {added_total}\n"
+        f"[bold green]✅ Sinkronisasi selesai[/bold green]\n"
+        f"[cyan]File tokens:[/cyan] {len(token_files)}\n"
+        f"[cyan]Data baru:[/cyan] {added_total}\n"
         f"[cyan]Duplikat dibersihkan:[/cyan] {cleaned_total}\n"
-        f"[cyan]Total data sekarang:[/cyan] {len(merged)}",
+        f"[cyan]Total data:[/cyan] {len(merged)}",
         border_style="green",
         width=70
     ))
     input("ENTER...")
 
-
-# =====================================================
-#  RUSR: SUB-MENU (NAMA / HAPUS NOMOR)
-# =====================================================
 def remove_or_name_user_menu():
     super_clear()
     token_files, merged = load_all_tokens_union()
@@ -244,18 +208,11 @@ def remove_or_name_user_menu():
         input("ENTER...")
         return
 
-    info_by_number: Dict[str, str] = {}
-    for item in merged:
-        num = str(item.get("number", "")).strip()
-        if not num:
-            continue
-        name = str(item.get("name", "")).strip()
-        if num not in info_by_number or not info_by_number[num]:
-            info_by_number[num] = name
+    info_by_number = build_info_by_number(merged)
 
     if not info_by_number:
         console.print(Panel.fit(
-            "[bold yellow]Tidak ada nomor yang valid.[/bold yellow]",
+            "[bold yellow]Tidak ada nomor valid.[/bold yellow]",
             border_style="yellow",
             width=70
         ))
@@ -264,31 +221,31 @@ def remove_or_name_user_menu():
 
     panel = Panel.fit(
         "[bold magenta]RUSR - Manajemen User[/bold magenta]\n\n"
-        "[cyan]1.[/cyan] Beri / ubah [bold]nama[/bold] nomor\n"
-        "[cyan]2.[/cyan] Hapus [bold]semua data yang terkait nomor tertentu[/bold]\n"
+        "[cyan]1.[/cyan] Ubah nama nomor\n"
+        "[cyan]2.[/cyan] Hapus data nomor\n"
+        "[cyan]00.[/cyan] Kembali\n"
         "[cyan]b.[/cyan] Kembali",
         border_style="magenta",
         width=70
     )
     console.print(panel)
 
-    choice = console.input("Pilih [1/2/b]: ").strip().lower()
+    choice = console.input("Pilih [1/2/00/b]: ").strip().lower()
+
+    if choice in ("b", "00"):
+        return
 
     if choice == "1":
         name_user_flow(token_files, merged, info_by_number)
     elif choice == "2":
         delete_user_flow(token_files, merged, info_by_number)
 
-
-# =====================================================
-#  RUSR: FLOW 1 — BERI / UBAH NAMA NOMOR
-# =====================================================
 def name_user_flow(token_files, merged, info_by_number):
     super_clear()
     numbers = sorted(info_by_number.keys())
 
     t = Table(
-        title="[bold green]📇 Beri / Ubah Nama Nomor[/bold green]",
+        title="[bold green]📇 Ubah Nama Nomor[/bold green]",
         box=box.ROUNDED,
         border_style="green",
         width=70
@@ -302,9 +259,9 @@ def name_user_flow(token_files, merged, info_by_number):
         t.add_row(str(i), num, name)
 
     console.print(t)
-    pilihan = console.input("\nPilih nomor [index/nomor/b]: ").strip()
+    pilihan = console.input("\nPilih [index/nomor/00/b]: ").strip()
 
-    if pilihan.lower() == "b":
+    if pilihan.lower() in ("b", "00"):
         return
 
     target = None
@@ -320,7 +277,7 @@ def name_user_flow(token_files, merged, info_by_number):
         input("ENTER...")
         return
 
-    new_name = console.input(f"Masukkan nama untuk nomor {target}: ").strip()
+    new_name = console.input(f"Nama baru untuk {target}: ").strip()
     if not new_name:
         console.print("[yellow]Nama kosong, dibatalkan.[/yellow]")
         input("ENTER...")
@@ -336,23 +293,19 @@ def name_user_flow(token_files, merged, info_by_number):
         f.write_text(json.dumps(merged, indent=4, ensure_ascii=False), encoding="utf-8")
 
     console.print(Panel.fit(
-        f"[bold green]✅ Nama untuk nomor {target} diset menjadi: [yellow]{new_name}[/yellow][/bold green]\n"
-        f"[cyan]Total record diupdate:[/cyan] {updated}",
+        f"[bold green]✅ Nama {target} → [yellow]{new_name}[/yellow][/bold green]\n"
+        f"[cyan]Record diupdate:[/cyan] {updated}",
         border_style="green",
         width=70
     ))
     input("ENTER...")
 
-
-# =====================================================
-#  RUSR: FLOW 2 — HAPUS SEMUA DATA NOMOR
-# =====================================================
 def delete_user_flow(token_files, merged, info_by_number):
     super_clear()
     numbers = sorted(info_by_number.keys())
 
     t = Table(
-        title="[bold red]🗑️ Hapus Semua Data Nomor[/bold red]",
+        title="[bold red]🗑️ Hapus Data Nomor[/bold red]",
         box=box.ROUNDED,
         border_style="red",
         width=70
@@ -366,9 +319,9 @@ def delete_user_flow(token_files, merged, info_by_number):
         t.add_row(str(i), num, name)
 
     console.print(t)
-    pilihan = console.input("\nPilih nomor yang akan dihapus [index/nomor/b]: ").strip()
+    pilihan = console.input("\nPilih [index/nomor/00/b]: ").strip()
 
-    if pilihan.lower() == "b":
+    if pilihan.lower() in ("b", "00"):
         return
 
     target = None
@@ -385,7 +338,7 @@ def delete_user_flow(token_files, merged, info_by_number):
         return
 
     konfirm = console.input(
-        f"[bold red]Yakin ingin menghapus SEMUA data yang terkait nomor {target}? (y/n): [/bold red]"
+        f"[bold red]Hapus SEMUA data nomor {target}? (y/n): [/bold red]"
     ).strip().lower()
 
     if konfirm != "y":
@@ -401,40 +354,32 @@ def delete_user_flow(token_files, merged, info_by_number):
         f.write_text(json.dumps(new_merged, indent=4, ensure_ascii=False), encoding="utf-8")
 
     console.print(Panel.fit(
-        f"[bold green]✅ Semua data dengan nomor {target} telah dihapus dari semua refresh-tokens.json[/bold green]\n"
-        f"[cyan]Total record dihapus:[/cyan] {removed}\n"
-        f"[cyan]Total record sekarang:[/cyan] {len(new_merged)}",
+        f"[bold green]✅ Nomor {target} dihapus[/bold green]\n"
+        f"[cyan]Record dihapus:[/cyan] {removed}\n"
+        f"[cyan]Total sekarang:[/cyan] {len(new_merged)}",
         border_style="green",
         width=70
     ))
     input("ENTER...")
 
-
-# =====================================================
-#  JALANKAN PROGRAM main.py
-# =====================================================
 def run_python(repo_path: Path):
     super_clear()
     console.print(Panel.fit(
         f"[bold cyan]Menjalankan: [yellow]{repo_path.name}[/yellow][/bold cyan]\n"
-        "[dim]Perintah: python main.py[/dim]",
+        "[dim]python main.py[/dim]",
         border_style="cyan",
         width=70
     ))
     try:
         subprocess.run(["python", "main.py"], cwd=str(repo_path))
     except FileNotFoundError:
-        console.print("[bold red]Python tidak ditemukan. Install dulu: pkg install python[/bold red]")
+        console.print("[bold red]Python tidak ditemukan. pkg install python[/bold red]")
     input("ENTER...")
 
-
-# =====================================================
-#  UPDATE SEMUA REPO (up)
-# =====================================================
 def update_all_repos(repos):
     super_clear()
     console.print(Panel.fit(
-        "[bold yellow]Update semua repo (git pull)[/bold yellow]",
+        "Update semua repo (git pull)",
         border_style="yellow",
         width=70
     ))
@@ -446,22 +391,18 @@ def update_all_repos(repos):
 
     for repo in repos:
         if not (repo / ".git").is_dir():
-            console.print(f"[dim]- {repo.name}: skip (bukan repo git)[/dim]")
+            console.print(f"[dim]- {repo.name}: skip[/dim]")
             continue
 
         console.print(f"\n[bold cyan]▶ {repo.name}[/bold cyan]")
         try:
             subprocess.run(["git", "pull"], cwd=str(repo))
         except FileNotFoundError:
-            console.print("[bold red]Git belum terinstall. Jalankan: pkg install git[/bold red]")
+            console.print("[bold red]Git belum terinstall. pkg install git[/bold red]")
             break
 
     input("ENTER...")
 
-
-# =====================================================
-#  WELCOME TABLE
-# =====================================================
 def make_welcome_table():
     t = Table(show_header=False, box=box.DOUBLE, width=70, border_style="cyan")
     t.add_column(justify="center")
@@ -469,10 +410,6 @@ def make_welcome_table():
     t.add_row("[dim]BY JONI WIJAYA FATHONI[/dim]")
     return t
 
-
-# =====================================================
-#  MENU UTAMA TABLE
-# =====================================================
 def make_menu_table(repos):
     t = Table(
         title="[bold green]📂 MENU UTAMA[/bold green]",
@@ -486,54 +423,59 @@ def make_menu_table(repos):
 
     if repos:
         for i, repo in enumerate(repos, start=1):
-            t.add_row(str(i), f"Jalankan program [yellow]{repo.name}[/yellow]")
+            t.add_row(str(i), f"Jalankan [yellow]{repo.name}[/yellow]")
     else:
         t.add_row("-", "[dim]Tidak ada folder dengan main.py[/dim]")
 
-    t.add_row("up", "Update semua repo (git pull)")
-    t.add_row("usr", "Sinkron & bersihkan refresh-tokens.json")
-    t.add_row("rusr", "Kelola user (beri nama / hapus data nomor)")
-    t.add_row("m", "Keluar ke shell")
-    t.add_row("q", "Keluar Termux")
+    t.add_row("up", "Update semua repo")
+    t.add_row("usr", "Sinkron & bersihkan tokens")
+    t.add_row("rusr", "Kelola user (nama / hapus)")
+    t.add_row("q", "Keluar dari menu")
     return t
 
+def make_user_table(info_by_number: Dict[str, str]):
+    t = Table(
+        title="[bold magenta]📇 DAFTAR NOMOR TERSIMPAN[/bold magenta]",
+        title_justify="center",
+        width=70,
+        box=box.ROUNDED,
+        border_style="magenta"
+    )
+    t.add_column("No", justify="center", style="bold cyan", width=6)
+    t.add_column("Number", justify="left", width=32)
+    t.add_column("Name", justify="left", width=32)
 
-# =====================================================
-#  TUTUP TERMUX
-# =====================================================
-def close_termux():
-    if os.system("command -v termux-activity-stop >/dev/null 2>&1") == 0:
-        os.system("termux-activity-stop")
-    else:
-        os.system("pkill -f com.termux")
+    numbers = sorted(info_by_number.keys())
+    for i, num in enumerate(numbers, start=1):
+        name = info_by_number[num] or "-"
+        t.add_row(str(i), num, name)
 
+    return t
 
-# =====================================================
-#  MAIN LOOP
-# =====================================================
 def main():
     while True:
         super_clear()
         repos = find_repos_with_mainpy()
+        _, merged = load_all_tokens_union()
+        info_by_number = build_info_by_number(merged) if merged else {}
 
         console.print(Align.center(make_welcome_table()))
         console.print()
         console.print(Align.center(make_menu_table(repos)))
         console.print()
 
+        if info_by_number:
+            console.print(Align.center(make_user_table(info_by_number)))
+            console.print()
+
         prompt = (
-            f"Masukkan pilihan [1..{len(repos)}/up/usr/rusr/m/q]: "
-            if repos else "Masukkan pilihan [up/usr/rusr/m/q]: "
+            f"Masukkan pilihan [1..{len(repos)}/up/usr/rusr/q]: "
+            if repos else "Masukkan pilihan [up/usr/rusr/q]: "
         )
         pilihan = console.input(prompt).strip().lower()
 
-        if pilihan == "m":
-            console.print("[cyan]Keluar ke shell...[/cyan]")
-            break
-
         if pilihan == "q":
-            console.print("[bold red]Menutup Termux... sampai jumpa! 👋[/bold red]")
-            close_termux()
+            console.print("[bold red]Keluar dari menu... 👋[/bold red]")
             raise SystemExit(0)
 
         if pilihan == "up":
@@ -558,7 +500,6 @@ def main():
         else:
             console.print("[bold red]❌ Pilihan tidak dikenali.[/bold red]")
             input("ENTER...")
-
 
 if __name__ == "__main__":
     auto_update_repo()
