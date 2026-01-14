@@ -89,6 +89,33 @@ def find_repos_with_mainpy():
     return repos
 
 
+def ensure_neutral2_files(repos: List[Path]):
+    """
+    Pastikan setiap repo punya neutral2.py.
+    Kalau belum ada, bikin template sederhana.
+    """
+    template = """#!/usr/bin/env python3
+\"\"\"Template neutral2.py
+
+Silakan isi file ini dengan script tambahan (misalnya auto buy multi account, dll).
+\"\"\"
+
+def main():
+    print("neutral2.py - template. Silakan edit untuk menambahkan logika sesuai kebutuhan.")
+
+if __name__ == "__main__":
+    main()
+"""
+    for repo in repos:
+        neutral_path = repo / "neutral2.py"
+        if not neutral_path.is_file():
+            try:
+                neutral_path.write_text(template, encoding="utf-8")
+            except Exception:
+                # kalau gagal tulis, lewatin aja biar nggak ganggu menu utama
+                pass
+
+
 def find_token_files():
     token_files = []
     for p in sorted(HOME.iterdir(), key=lambda x: x.name.lower()):
@@ -379,16 +406,16 @@ def delete_user_flow(token_files, merged, info_by_number):
     input("ENTER...")
 
 
-def run_python(repo_path: Path):
+def run_python(repo_path: Path, script_name: str = "main.py"):
     super_clear()
     console.print(Panel.fit(
-        f"[bold cyan]Menjalankan: [yellow]{repo_path.name}[/yellow][/bold cyan]\n"
-        "[dim]Perintah: python main.py[/dim]",
+        f"[bold cyan]Menjalankan: [yellow]{repo_path.name}/{script_name}[/yellow][/bold cyan]\n"
+        f"[dim]Perintah: python {script_name}[/dim]",
         border_style="cyan",
         width=70
     ))
     try:
-        subprocess.run(["python", "main.py"], cwd=str(repo_path))
+        subprocess.run(["python", script_name], cwd=str(repo_path))
     except FileNotFoundError:
         console.print("[bold red]Python tidak ditemukan. Install dulu: pkg install python[/bold red]")
     input("ENTER...")
@@ -443,7 +470,10 @@ def make_menu_table(repos):
 
     if repos:
         for i, repo in enumerate(repos, start=1):
-            t.add_row(str(i), f"Jalankan program [yellow]{repo.name}[/yellow]")
+            # i  -> main.py
+            t.add_row(str(i), f"Jalankan [yellow]{repo.name}[/yellow] (main.py)")
+            # ia -> neutral2.py
+            t.add_row(f"{i}a", f"Jalankan [yellow]{repo.name}[/yellow] (neutral2.py)")
     else:
         t.add_row("-", "[dim]Tidak ada folder dengan main.py[/dim]")
 
@@ -476,6 +506,9 @@ def main():
     while True:
         super_clear()
         repos = find_repos_with_mainpy()
+        # pastikan semua repo punya neutral2.py
+        ensure_neutral2_files(repos)
+
         _, merged = load_all_tokens_union()
         info_by_number = build_info_by_number(merged) if merged else {}
 
@@ -488,10 +521,13 @@ def main():
             console.print(Align.center(make_user_table(info_by_number)))
             console.print()
 
-        prompt = (
-            f"Masukkan pilihan [1..{len(repos)}/up/usr/rusr/q]: "
-            if repos else "Masukkan pilihan [up/usr/rusr/q]: "
-        )
+        if repos:
+            prompt = (
+                f"Masukkan pilihan [1..{len(repos)}, 1a..{len(repos)}a / up / usr / rusr / q]: "
+            )
+        else:
+            prompt = "Masukkan pilihan [up / usr / rusr / q]: "
+
         pilihan = console.input(prompt).strip().lower()
 
         if pilihan == "q":
@@ -510,10 +546,21 @@ def main():
             remove_or_name_user_menu()
             continue
 
+        # cek pola "angka + a" => neutral2.py
+        if len(pilihan) > 1 and pilihan.endswith("a") and pilihan[:-1].isdigit():
+            idx = int(pilihan[:-1]) - 1
+            if 0 <= idx < len(repos):
+                run_python(repos[idx], "neutral2.py")
+            else:
+                console.print("[bold red]❌ Nomor tidak valid.[/bold red]")
+                input("ENTER...")
+            continue
+
+        # angka biasa => main.py
         if pilihan.isdigit():
             idx = int(pilihan) - 1
             if 0 <= idx < len(repos):
-                run_python(repos[idx])
+                run_python(repos[idx], "main.py")
             else:
                 console.print("[bold red]❌ Nomor tidak valid.[/bold red]")
                 input("ENTER...")
