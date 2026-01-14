@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Auto Purchase - Multi Account Version (Termux / Linux)
-Otomatis loop semua saved accounts dari refresh-tokens.json
-"""
 
 import sys
 import os
@@ -11,9 +7,10 @@ import argparse
 import json
 from datetime import datetime
 
-# ==== DEPENDENCIES ====
 try:
     import pexpect
+    from pexpect import EOF, TIMEOUT
+    from pexpect.popen_spawn import PopenSpawn
 except ImportError:
     print("❌ pexpect not installed!")
     print("Please run: pip install pexpect")
@@ -117,12 +114,8 @@ class MultiAccountPurchase:
         cmd = f'"{sys.executable}" -u main.py'
 
         with console.status("[cyan]Initializing...", spinner="dots"):
-            # pexpect untuk Termux / Linux
-            self.child = pexpect.spawn(
-                cmd,
-                encoding='utf-8',
-                timeout=self.timeout
-            )
+            # PopenSpawn works on Windows & Linux
+            self.child = PopenSpawn(cmd, timeout=self.timeout, encoding='utf-8')
             time.sleep(2)
 
         # Handle initial "Press Enter" prompt
@@ -130,7 +123,7 @@ class MultiAccountPurchase:
             index = self.child.expect([
                 r'Press Enter to continue',
                 r'Press enter',
-                pexpect.TIMEOUT
+                TIMEOUT
             ], timeout=3)
 
             if index != 2:
@@ -163,11 +156,11 @@ class MultiAccountPurchase:
             self.child.sendline(response)
             time.sleep(1)
             return index
-        except pexpect.TIMEOUT:
+        except TIMEOUT:
             if show_step:
                 self.step(f"TIMEOUT: {description}", status='error', indent=3)
             return None
-        except pexpect.EOF:
+        except EOF:
             if show_step:
                 self.step("Program terminated", status='error', indent=3)
             return None
@@ -175,7 +168,8 @@ class MultiAccountPurchase:
     def switch_account(self, account_index):
         """Switch to specific account"""
         console.print()
-        self.step(f"Switching to account #{account_index + 1}: {self.accounts[account_index]}", status='switch', indent=1)
+        self.step(f"Switching to account #{account_index + 1}: {self.accounts[account_index]}",
+                  status='switch', indent=1)
 
         # Open account menu immediately (don't wait long for main menu)
         self.step("Opening account menu", status='processing', indent=2)
@@ -185,7 +179,7 @@ class MultiAccountPurchase:
         # Wait for saved accounts prompt or a quick menu indicator
         try:
             idx = self.child.expect(
-                [r'SAVED ACCOUNTS', r'Pilihan', r'No users', r'Pilih menu', pexpect.TIMEOUT],
+                [r'SAVED ACCOUNTS', r'Pilihan', r'No users', r'Pilih menu', TIMEOUT],
                 timeout=5
             )
             if idx == 4:
@@ -198,17 +192,19 @@ class MultiAccountPurchase:
         time.sleep(0.3)
 
         # Select account by number (account_index + 1)
-        self.step(f"Selecting account number: {account_index + 1}", status='sending', indent=2)
+        # Assuming the account menu shows numbered list
+        self.step(f"Selecting account number: {account_index + 1}",
+                  status='sending', indent=2)
         self.child.sendline(str(account_index + 1))
         time.sleep(2)
 
         # Wait for confirmation or return to main menu
         try:
             self.child.expect(['Pilih menu', 'pilih menu'], timeout=5)
-            self.step(f"Account switched successfully", status='success', indent=2)
+            self.step("Account switched successfully", status='success', indent=2)
             return True
-        except pexpect.TIMEOUT:
-            self.step(f"Failed to switch account", status='error', indent=2)
+        except TIMEOUT:
+            self.step("Failed to switch account", status='error', indent=2)
             return False
 
     def purchase_single(self, family_code, package_number, choice, account_name=""):
@@ -221,7 +217,7 @@ class MultiAccountPurchase:
 
         # Check press-enter
         try:
-            idx = self.child.expect([r'Press Enter', r'Press enter', pexpect.TIMEOUT], timeout=2)
+            idx = self.child.expect([r'Press Enter', r'Press enter', TIMEOUT], timeout=2)
             if idx != 2:
                 self.child.sendline('')
                 time.sleep(1)
@@ -237,19 +233,22 @@ class MultiAccountPurchase:
             self.step("Failed to send menu option 6; continuing", status='warning', indent=2)
 
         # Family Code
-        idx = self.wait_and_send(['Enter family code', 'family code'], family_code, 'Family Code')
+        idx = self.wait_and_send(['Enter family code', 'family code'],
+                                 family_code, 'Family Code')
         if idx is None:
             self.child.sendline(family_code)
             time.sleep(2)
 
         # Package
-        idx = self.wait_and_send(['Pilih paket', 'nomor'], str(package_number), 'Package Selection')
+        idx = self.wait_and_send(['Pilih paket', 'nomor'],
+                                 str(package_number), 'Package Selection')
         if idx is None:
             self.child.sendline(str(package_number))
             time.sleep(2)
 
         # Choice
-        idx = self.wait_and_send(['Pilihan:', 'pilihan:'], str(choice), 'Action Choice')
+        idx = self.wait_and_send(['Pilihan:', 'pilihan:'],
+                                 str(choice), 'Action Choice')
         if idx is None:
             self.child.sendline(str(choice))
             time.sleep(2)
@@ -277,15 +276,18 @@ class MultiAccountPurchase:
                     )
                     console.print(panel)
 
-                    # After success: detect whether we see 'Press enter' or 'Pilih paket' and handle both flows
+                    # After success: detect whether we see 'Press enter' or 'Pilih paket'
                     self.step("Checking post-purchase prompts...", status='processing', indent=2)
                     try:
                         idx = self.child.expect(
-                            [r'Press Enter', r'Press enter', r'Pilih paket', r'pilih paket', r'Pilih menu', r'pilih menu'],
+                            [r'Press Enter', r'Press enter',
+                             r'Pilih paket', r'pilih paket',
+                             r'Pilih menu', r'pilih menu'],
                             timeout=6
                         )
                         if idx in (0, 1):
-                            self.step("Detected 'Press enter' prompt — sending Enter", status='info', indent=2)
+                            self.step("Detected 'Press enter' prompt — sending Enter",
+                                      status='info', indent=2)
                             try:
                                 self.child.sendline('')
                                 time.sleep(0.5)
@@ -293,62 +295,88 @@ class MultiAccountPurchase:
                                 pass
                             try:
                                 idx2 = self.child.expect(
-                                    [r'Pilih paket', r'pilih paket', r'Pilih menu', r'pilih menu'],
+                                    [r'Pilih paket', r'pilih paket',
+                                     r'Pilih menu', r'pilih menu'],
                                     timeout=6
                                 )
                                 if idx2 in (0, 1):
-                                    self.step("Detected 'Pilih paket' prompt — Sending Request To Neutral Server...",
-                                              status='sending', indent=2)
+                                    self.step(
+                                        "Detected 'Pilih paket' prompt — Sending Request To Neutral Server...",
+                                        status='sending', indent=2
+                                    )
                                     self.child.sendline('00')
                                     time.sleep(0.5)
                                     try:
-                                        self.child.expect([r'Pilih menu', r'pilih menu'], timeout=6)
-                                        self.step("Returned to main menu", status='success', indent=2)
-                                    except pexpect.TIMEOUT:
-                                        self.step("Did not see main menu after sending '00'", status='warning', indent=2)
+                                        self.child.expect(
+                                            [r'Pilih menu', r'pilih menu'],
+                                            timeout=6
+                                        )
+                                        self.step("Returned to main menu",
+                                                  status='success', indent=2)
+                                    except TIMEOUT:
+                                        self.step("Did not see main menu after sending '00'",
+                                                  status='warning', indent=2)
                                 else:
                                     self.step("Already at main menu", status='success', indent=2)
-                            except pexpect.TIMEOUT:
-                                self.step("No 'Pilih paket' after pressing Enter; proceeding", status='warning', indent=2)
+                            except TIMEOUT:
+                                self.step("No 'Pilih paket' after pressing Enter; proceeding",
+                                          status='warning', indent=2)
                         elif idx in (2, 3):
                             # Directly at 'Pilih paket'
-                            self.step("Detected 'Pilih paket' prompt — Sending Request To Neutral Server...",
-                                      status='sending', indent=2)
+                            self.step(
+                                "Detected 'Pilih paket' prompt — Sending Request To Neutral Server...",
+                                status='sending', indent=2
+                            )
                             self.child.sendline('00')
                             time.sleep(0.5)
                             try:
-                                self.child.expect([r'Pilih menu', r'pilih menu'], timeout=6)
+                                self.child.expect(
+                                    [r'Pilih menu', r'pilih menu'],
+                                    timeout=6
+                                )
                                 self.step("Returned to main menu", status='success', indent=2)
-                            except pexpect.TIMEOUT:
-                                self.step("Did not see main menu after sending '00'", status='warning', indent=2)
+                            except TIMEOUT:
+                                self.step("Did not see main menu after sending '00'",
+                                          status='warning', indent=2)
                         else:
                             self.step("Already at main menu", status='success', indent=2)
-                    except pexpect.TIMEOUT:
+                    except TIMEOUT:
                         # Retry pressing Enter once
-                        self.step("No post-purchase prompt detected; retrying Enter...", status='warning', indent=2)
+                        self.step("No post-purchase prompt detected; retrying Enter...",
+                                  status='warning', indent=2)
                         try:
                             self.child.sendline('')
                             time.sleep(0.5)
                             idx3 = self.child.expect(
-                                [r'Pilih paket', r'pilih paket', r'Pilih menu', r'pilih menu'],
+                                [r'Pilih paket', r'pilih paket',
+                                 r'Pilih menu', r'pilih menu'],
                                 timeout=6
                             )
                             if idx3 in (0, 1):
-                                self.step("Detected 'Pilih paket' after retry — Sending Request To Neutral Server...",
-                                          status='sending', indent=2)
+                                self.step(
+                                    "Detected 'Pilih paket' after retry — Sending Request To Neutral Server...",
+                                    status='sending', indent=2
+                                )
                                 self.child.sendline('00')
                                 time.sleep(0.5)
                                 try:
-                                    self.child.expect([r'Pilih menu', r'pilih menu'], timeout=6)
+                                    self.child.expect(
+                                        [r'Pilih menu', r'pilih menu'],
+                                        timeout=6
+                                    )
                                     self.step("Returned to main menu", status='success', indent=2)
-                                except pexpect.TIMEOUT:
-                                    self.step("Did not see main menu after sending '00'", status='warning', indent=2)
+                                except TIMEOUT:
+                                    self.step("Did not see main menu after sending '00'",
+                                              status='warning', indent=2)
                             elif idx3 in (2, 3):
-                                self.step("Already at main menu after retry", status='success', indent=2)
-                        except pexpect.TIMEOUT:
-                            self.step("No post-purchase prompt after retry; proceeding", status='warning', indent=2)
+                                self.step("Already at main menu after retry",
+                                          status='success', indent=2)
+                        except TIMEOUT:
+                            self.step("No post-purchase prompt after retry; proceeding",
+                                      status='warning', indent=2)
                         except Exception:
-                            self.step("Exception while retrying post-purchase prompts", status='warning', indent=2)
+                            self.step("Exception while retrying post-purchase prompts",
+                                      status='warning', indent=2)
 
                     time.sleep(1)
                     return True
@@ -362,7 +390,7 @@ class MultiAccountPurchase:
                     console.print(panel)
                     return False
 
-            except pexpect.TIMEOUT:
+            except TIMEOUT:
                 panel = Panel(
                     f"[bold yellow]⚠ Timeout[/bold yellow]\n\n"
                     f"[dim]Account: {account_name}[/dim]",
@@ -374,18 +402,17 @@ class MultiAccountPurchase:
 
     def close(self):
         """Close program gracefully"""
-        if self.child is not None:
+        if self.child and self.child.isalive():
             try:
-                if self.child.isalive():
-                    self.child.sendline('99')
-                    try:
-                        self.child.expect(pexpect.EOF, timeout=3)
-                    except Exception:
-                        pass
+                self.child.sendline('99')
+                try:
+                    self.child.expect(EOF, timeout=3)
+                except Exception:
+                    pass
                 self.child.close()
             except Exception:
                 try:
-                    self.child.close(force=True)
+                    self.child.close()
                 except Exception:
                     pass
 
@@ -419,7 +446,7 @@ class MultiAccountPurchase:
 
 
 def main():
-    parser = argparse.ArgumentParser(prog='Auto Purchase XL - Multi Account (Termux)')
+    parser = argparse.ArgumentParser(prog='Auto Purchase XL - Multi Account')
     parser.add_argument('--tokens', default='refresh-tokens.json', help='Path to tokens file')
     parser.add_argument('--family', default='f4fd69c7-12a4-4047-a1f2-f4072a7c543e')
     parser.add_argument('--package', type=int, default=19)
@@ -428,11 +455,12 @@ def main():
     parser.add_argument('--confirm', action='store_true', help='Skip confirmation and run immediately')
     args = parser.parse_args()
 
+    # Header
     console.print()
     header = Panel(
         Align.center(
             "[bold cyan]AUTO BUY MASTIF XL[/bold cyan]\n"
-            "[dim]Multi-Account Mode (Termux/Linux)[/dim]\n"
+            "[dim]Multi-Account Mode[/dim]\n"
             "[dim]BY Neutral[/dim]"
         ),
         border_style="cyan", box=box.DOUBLE, padding=(1, 2)
