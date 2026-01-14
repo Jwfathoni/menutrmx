@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 import os
 import sys
-import json
 import time
 import select
 import subprocess
+import shutil
 from pathlib import Path
-from typing import List, Dict, Tuple
+from typing import List
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -22,7 +22,7 @@ def super_clear():
     console.clear()
 
 
-def wait_enter_or_timeout(timeout: int = 7):
+def wait_enter_or_timeout(timeout: int = 5):
     console.print("[dim]Tekan ENTER untuk melanjutkan...[/dim]")
     try:
         rlist, _, _ = select.select([sys.stdin], [], [], timeout)
@@ -33,6 +33,9 @@ def wait_enter_or_timeout(timeout: int = 7):
 
 
 def auto_update_repo():
+    """
+    Auto git pull untuk repo menutrmx (tempat menu ini berada).
+    """
     try:
         repo_dir = Path(__file__).resolve().parent
     except Exception:
@@ -51,30 +54,40 @@ def auto_update_repo():
             capture_output=True,
             text=True
         )
-
         out = (res.stdout or "").strip().lower()
+
         console.print()
 
         if res.returncode == 0:
             if out and "already up to date" not in out:
-                msg = "✅ Menu berhasil diperbarui!"
+                msg = "✅ Menu berhasil diperbarui ke versi terbaru."
                 style = "green"
             else:
-                msg = "✔️ Menu sudah versi terbaru."
+                msg = "✔️ Menu sudah dalam versi terbaru. Tidak ada pembaruan diperlukan."
                 style = "cyan"
 
-            t = Table(title="📘 Status Update", width=70, box=box.ROUNDED, border_style=style, show_header=False)
-            t.add_column()
+            t = Table(
+                title="[bold cyan]📘 Status Update Menu[/bold cyan]",
+                title_justify="center",
+                width=70,
+                box=box.ROUNDED,
+                border_style=style,
+                show_header=False
+            )
+            t.add_column(justify="left")
             t.add_row(msg)
             console.print(t)
 
-        wait_enter_or_timeout(5)
+        wait_enter_or_timeout(3)
 
     except Exception:
         pass
 
 
-def find_repos_with_mainpy():
+def find_repos_with_mainpy() -> List[Path]:
+    """
+    Cari semua folder di $HOME yang punya main.py
+    """
     repos = []
     for p in sorted(HOME.iterdir(), key=lambda x: x.name.lower()):
         if p.is_dir() and not p.name.startswith(".") and (p / "main.py").is_file():
@@ -83,21 +96,39 @@ def find_repos_with_mainpy():
 
 
 def ensure_neutral2_files(repos: List[Path]):
-    template = """#!/usr/bin/env python3
+    """
+    Pastikan setiap repo punya neutral2.py yang sama dengan neutral2.py di repo menutrmx (tempat menu.py ini).
+    - Kalau di repo target belum ada neutral2.py → copy dari sumber.
+    - Kalau ada tapi masih template (mengandung 'neutral2.py - template') → overwrite dengan sumber.
+    """
+    base_dir = Path(__file__).resolve().parent
+    source = base_dir / "neutral2.py"   # neutral2.py punyamu dari repo GitHub
 
-def main():
-    print("neutral2.py - template. Silakan edit untuk fungsionalitas lain.\n")
+    if not source.is_file():
+        # Kalau neutral2.py sumber tidak ada, kita nggak berani ngapa-ngapain
+        console.print("[red]⚠ neutral2.py sumber tidak ditemukan di repo menutrmx.[/red]")
+        console.print("[dim]Letakkan script neutral2.py milikmu di folder yang sama dengan menu.py[/dim]")
+        wait_enter_or_timeout(5)
+        return
 
-if __name__ == "__main__":
-    main()
-"""
+    template_marker = "neutral2.py - template"
+
     for repo in repos:
-        neutral_path = repo / "neutral2.py"
-        if not neutral_path.is_file():
-            try:
-                neutral_path.write_text(template, encoding="utf-8")
-            except Exception:
-                pass
+        dest = repo / "neutral2.py"
+        try:
+            if not dest.is_file():
+                # Belum ada neutral2.py -> copy dari sumber
+                shutil.copyfile(source, dest)
+            else:
+                # Kalau ada tapi isinya template, replace
+                try:
+                    content = dest.read_text(encoding="utf-8")
+                except Exception:
+                    content = ""
+                if template_marker in content:
+                    shutil.copyfile(source, dest)
+        except Exception as e:
+            console.print(f"[red]Gagal sinkron neutral2.py di {repo.name}: {e}[/red]")
 
 
 def make_welcome_table():
@@ -108,9 +139,9 @@ def make_welcome_table():
     return t
 
 
-def make_menu_table(repos):
+def make_menu_table(repos: List[Path]):
     t = Table(
-        title="📂 MENU UTAMA",
+        title="[bold green]📂 MENU UTAMA[/bold green]",
         title_justify="center",
         width=70,
         box=box.ROUNDED,
@@ -121,29 +152,30 @@ def make_menu_table(repos):
 
     if repos:
         for i, repo in enumerate(repos, start=1):
-            t.add_row(str(i), f"Jalankan {repo.name} (main.py)")
-            t.add_row(f"{i}a", f"Jalankan {repo.name} (neutral2.py)")
+            t.add_row(str(i), f"Jalankan [yellow]{repo.name}[/yellow] (main.py)")
+            t.add_row(f"{i}a", f"Jalankan [yellow]{repo.name}[/yellow] (neutral2.py)")
     else:
-        t.add_row("-", "[dim]Tidak ada folder dengan main.py[/dim]")
+        t.add_row("-", "[dim]Tidak ada folder dengan main.py di HOME[/dim]")
 
     t.add_row("q", "Keluar dari menu")
     return t
 
 
-def run_python(repo: Path, script: str):
+def run_python(repo_path: Path, script_name: str):
     super_clear()
     console.print(Panel.fit(
-        f"[cyan]Menjalankan[/cyan] [yellow]{repo.name}/{script}[/yellow]\n\n"
-        f"[dim]Command: python {script}[/dim]",
+        f"[bold cyan]Menjalankan: [yellow]{repo_path.name}/{script_name}[/yellow][/bold cyan]\n"
+        f"[dim]Perintah: {sys.executable} {script_name}[/dim]",
         border_style="cyan",
         width=70
     ))
-
     try:
-        subprocess.run([sys.executable, script], cwd=str(repo))
+        # Pakai interpreter yang sama dengan menu.py
+        subprocess.run([sys.executable, script_name], cwd=str(repo_path))
+    except FileNotFoundError:
+        console.print("[bold red]Python tidak ditemukan. Install dulu: pkg install python[/bold red]")
     except Exception as e:
-        console.print(f"[red]Gagal menjalankan: {e}[/red]")
-
+        console.print(f"[bold red]Error menjalankan {script_name}: {e}[/bold red]")
     input("ENTER...")
 
 
@@ -151,6 +183,7 @@ def main():
     while True:
         super_clear()
         repos = find_repos_with_mainpy()
+        # Sinkron neutral2.py dulu (copy dari repo menutrmx ke semua repo target)
         ensure_neutral2_files(repos)
 
         console.print(Align.center(make_welcome_table()))
@@ -158,33 +191,34 @@ def main():
         console.print(Align.center(make_menu_table(repos)))
         console.print()
 
-        pilihan = console.input("Pilih menu: ").strip().lower()
+        prompt = "Pilih menu: "
+        pilihan = console.input(prompt).strip().lower()
 
         if pilihan == "q":
-            console.print("[bold red]Keluar... 👋[/bold red]")
+            console.print("[bold red]Keluar dari menu... sampai jumpa! 👋[/bold red]")
             sys.exit(0)
 
-        # --- Neutral handler (angka + a) ---
+        # --- angka + 'a' -> neutral2.py ---
         if pilihan.endswith("a") and pilihan[:-1].isdigit():
             idx = int(pilihan[:-1]) - 1
             if 0 <= idx < len(repos):
-                return run_python(repos[idx], "neutral2.py")
+                run_python(repos[idx], "neutral2.py")
             else:
-                console.print("[red]Nomor tidak valid![/red]")
+                console.print("[bold red]❌ Nomor tidak valid.[/bold red]")
                 input("ENTER...")
-                continue
+            continue
 
-        # --- Main handler (angka saja) ---
+        # --- angka saja -> main.py ---
         if pilihan.isdigit():
             idx = int(pilihan) - 1
             if 0 <= idx < len(repos):
-                return run_python(repos[idx], "main.py")
+                run_python(repos[idx], "main.py")
             else:
-                console.print("[red]Nomor tidak valid![/red]")
+                console.print("[bold red]❌ Nomor tidak valid.[/bold red]")
                 input("ENTER...")
-                continue
+            continue
 
-        console.print("[red]Pilihan tidak dikenali[/red]")
+        console.print("[bold red]❌ Pilihan tidak dikenali.[/bold red]")
         input("ENTER...")
 
 
